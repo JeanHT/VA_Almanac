@@ -1,0 +1,148 @@
+---
+title: "Get Bills"
+author:
+  - "Robert J. McGrath, Ph.D."
+  - "Jean Thoensen"
+date: "`r Sys.Date()`"
+documentclass: article
+geometry: margin=1in
+fontsize: 11pt
+output:
+  pdf_document:
+    toc: false
+    df_print: kable
+    fig_caption: false
+    number_sections: false
+    dev: pdf
+    highlight: tango
+  html_document:
+    theme: default
+    self_contained: true
+    toc: false
+    df_print: kable
+    fig_caption: false
+    number_sections: false
+    smart: true
+    dev: svg
+---
+  
+```{r setup, include = FALSE}
+# DO NOT ALTER THIS CHUNK
+knitr::opts_chunk$set(
+  echo = TRUE,
+  eval = TRUE,
+  fig.width = 5,
+  fig.asp = 0.618,
+  out.width = "70%",
+  dpi = 120,
+  fig.align = "center",
+  cache = FALSE
+)
+
+# Load required packages
+library(robotstxt)
+library(rvest)    
+library(tidyverse)
+library(xml2)
+#library(stringr)   
+#library(rebus)     
+#library(lubridate)
+#library(qdapRegex)
+#library (gsubfn)
+#library(dplyr)
+```
+
+```{r global_variables}
+# Web sites are reorganized, naming conventions change, and pages move.
+# Global variables may help make this code easier to maintain in the future.
+site_url <- "https://lis.virginia.gov"
+```
+
+Responsible scraping of Web pages requires that we examine the robots.txt file to determine if the site restricts access. The LIS robots.txt file doesn't contain any restrictions on directories, nor does it request a crawl delay.
+
+```{r check_robots_txt}
+robots_txt <- get_robotstxt(site_url)
+robots_txt_parsed <- parse_robotstxt(robots_txt)
+robots_txt_parsed
+```
+
+```{r create_data_frame}
+# Data skeleton for presented and ordered printed 
+data <- data.frame(session=factor(),
+                   billnum=factor(),
+                   billnum_abbrv=factor(),
+                   desc=factor(),
+                   #offered=factor(),
+                   #prefiled=factor(),
+                   type=factor(),
+                   sponsors=factor(),
+                   committees=factor(),
+                   text=factor(),
+                   stringsAsFactors=FALSE)
+```
+
+```{r}
+# 1994 HB 1
+# House bill presented, & ordered printed
+bill_url <- "https://lis.virginia.gov/cgi-bin/legp604.exe?941+ful+HB1E"
+```
+
+```{r read_bill_page}
+# Read the bill's Web page
+page_html <- read_html(bill_url)
+
+# Extract the html body
+page_body_html <- page_html %>%
+  html_nodes("#mainC") %>%
+  html_text()
+
+page_body_html
+```
+
+## First, only for last (top) bills - HB presented and ordered printed  
+# First, loop through bill numbers (need to do this for Senate and JR etc. as well - loop later)
+
+```{r}
+url_base <- "https://lis.virginia.gov/cgi-bin/legp604.exe?941+ful+"
+
+loop_chambers<-c("H", "S")
+
+for(chamber in loop_chambers){
+  
+# for(i in 1:1500) {  
+for(i in 1:10) {
+  # Strip leading zeros from the bill number counter
+  i1 <- sprintf('%01d', i)
+  bill_url <- paste0(url_base, chamber, "B", i1) # loop through S too
+  page <- read_html(bill_url) 
+  dump <- page %>% html_node("#mainC") %>%
+        html_text()
+  session <- str_extract(dump, "[1-9]+ SESSION")
+  if (length(session)==0){
+    break 
+  }
+  if (is.na(session)==T){
+    break 
+  }
+  billnum <- str_extract(dump, "\\w+ BILL NO. \\d+")
+  billnum_abbrv <- paste0(chamber, "B", i1)
+  sponsors <- str_extract(dump, "Patron.*")
+  committees <- str_extract(dump, "Referred to.*")
+  dump <- str_replace_all(dump, "[\r\n]" , "")
+  text <- str_extract(dump, "Be it.*")
+  desc <- str_extract(dump, "A BILL.*\\.-")
+  type <- "presented and ordered printed"
+  t <- as.data.frame(cbind(session, billnum,billnum_abbrv, desc, type, sponsors, committees, text))
+  try(data <- rbind(data,t), silent=T)
+  Sys.sleep(2)
+}
+}
+
+write.csv(data, file = "1994.csv")
+```
+
+#loop H and S around J and R
+#loop through HJ as a class
+#loop through HR as a class 
+#loop through SJ as a class
+#loop through SR as a class
