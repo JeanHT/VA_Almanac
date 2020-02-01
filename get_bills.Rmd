@@ -81,68 +81,108 @@ data <- data.frame(session=factor(),
                    stringsAsFactors=FALSE)
 ```
 
-```{r}
-# 1994 HB 1
-# House bill presented, & ordered printed
-bill_url <- "https://lis.virginia.gov/cgi-bin/legp604.exe?941+ful+HB1E"
-```
-
-```{r read_bill_page}
-# Read the bill's Web page
-page_html <- read_html(bill_url)
-
-# Extract the html body
-page_body_html <- page_html %>%
-  html_nodes("#mainC") %>%
-  html_text()
-
-page_body_html
-```
-
-## First, only for last (top) bills - HB presented and ordered printed  
-# First, loop through bill numbers (need to do this for Senate and JR etc. as well - loop later)
+# First, only for last (top) bills - HB presented and ordered printed  
+# First, loop through bill numbers (need to do this for Senate and joint resolutions, etc. as well - loop later)
 
 ```{r}
-url_base <- "https://lis.virginia.gov/cgi-bin/legp604.exe?941+ful+"
+# For development purposes, hardcode the session portion of the URL
+# for the 1994 House session. This will be expanded into a function later.
+session_url <- "cgi-bin/legp604.exe?941+ful+"
+```
 
-loop_chambers<-c("H", "S")
+There are multiple types of legislation introduced in the General Assembly:
+*  House bills
+*  House joint resolutions
+*  House resolutions
+*  Senate bills
+*  Senate joint resolutions
+*  Senate resolutions
 
-for(chamber in loop_chambers){
-  
-# for(i in 1:1500) {  
-for(i in 1:10) {
-  # Strip leading zeros from the bill number counter
-  i1 <- sprintf('%01d', i)
-  bill_url <- paste0(url_base, chamber, "B", i1) # loop through S too
-  page <- read_html(bill_url) 
-  dump <- page %>% html_node("#mainC") %>%
-        html_text()
-  session <- str_extract(dump, "[1-9]+ SESSION")
-  if (length(session)==0){
-    break 
+Dr. McGrath's ideas:
+
+*  Loop H and S around J and R
+*  Loop through HJ as a class
+*  Loop through HR as a class 
+*  Loop through SJ as a class
+*  Loop through SR as a class
+
+Not all types may be introduced in every session. In addition to the annual session, the General Assembly may also convene one or more special sessions.
+
+```{r}
+loop_chambers <- c("H", "S")
+
+for (chamber in loop_chambers) {
+  # for(i in 1:1500) {
+  for (i in 1:10) {
+    # Strip leading zeros from the bill number counter
+    i1 <- sprintf('%01d', i)
+    
+    # Build the bill's URL based on the site and base URLs, chamber, and loop counter
+    # Will need to add logic for types of legislation
+    bill_url <- paste0(site_url, "/", session_url, chamber, "B", i1) # loop through S too
+    
+    # Read the bill's Web page
+    page_html <- read_html(bill_url)
+    
+    # Extract the bill text from the <div id="mainC"> HTML tag
+    bill_html <- page_html %>%
+      html_nodes("#mainC") %>%
+      html_text()
+    
+    # In which year was the bill was presented?
+    session <- str_extract(bill_html, "[1-9]+ SESSION")
+    
+    # If the string length is zero, then there was no session that year,
+    # and we should skip to the next
+    # What's an example of this?
+    if (length(session) == 0) {
+      break
+    }
+    
+    # What does this do?
+    if (is.na(session) == T) {
+      break
+    }
+    
+    # Parse the bill text for useful information
+    # This may be a good candidate for a function
+    billnum <- str_extract(bill_html, "\\w+ BILL NO. \\d+")
+    billnum_abbrv <- paste0(chamber, "B", i1)
+    sponsors <- str_extract(bill_html, "Patron.*")
+    committees <- str_extract(bill_html, "Referred to.*")
+    dump <- str_replace_all(bill_html, "[\r\n]" , "")
+    text <- str_extract(bill_html, "Be it.*")
+    desc <- str_extract(bill_html, "A BILL.*\\.-")
+    type <- "presented and ordered printed"
+    t <-
+      as.data.frame(cbind(
+        session,
+        billnum,
+        billnum_abbrv,
+        desc,
+        type,
+        sponsors,
+        committees,
+        text
+      ))
+    try(data <- rbind(data, t), silent = T)
+    
+    # Wait 2 seconds before scraping the next Web page to be polite.
+    # Helps to avoid the server thinking we're an ill-behaved bot.
+    Sys.sleep(2)
   }
-  if (is.na(session)==T){
-    break 
-  }
-  billnum <- str_extract(dump, "\\w+ BILL NO. \\d+")
-  billnum_abbrv <- paste0(chamber, "B", i1)
-  sponsors <- str_extract(dump, "Patron.*")
-  committees <- str_extract(dump, "Referred to.*")
-  dump <- str_replace_all(dump, "[\r\n]" , "")
-  text <- str_extract(dump, "Be it.*")
-  desc <- str_extract(dump, "A BILL.*\\.-")
-  type <- "presented and ordered printed"
-  t <- as.data.frame(cbind(session, billnum,billnum_abbrv, desc, type, sponsors, committees, text))
-  try(data <- rbind(data,t), silent=T)
-  Sys.sleep(2)
 }
-}
+```
 
+Save the results to a CSV file. This is a temporary option since bills with text larger than 32k will overflow their cells. Creating an SQL database or using XML may be better options.
+
+```{r write_to_csv}
 write.csv(data, file = "1994.csv")
 ```
+\newpage
+# References
+Meissner, Peter. 2018. *robotstxt: A 'robots.txt' Parser and 'Webbot'/'Spider'/'Crawler' Permissions Checker.* R package version 0.6.2. https://CRAN.R-project.org/package=robotstxt
 
-#loop H and S around J and R
-#loop through HJ as a class
-#loop through HR as a class 
-#loop through SJ as a class
-#loop through SR as a class
+Munzert, Simon. 2014. *Automated Data Collection with R: A Practical Guide to Web Scraping and Texting Mining.* Chichester, West Sussex, United Kingdom: Wiley.
+
+R Core Team. 2019. *R: A language and environment for statistical computing.* R Foundation for Statistical Computing, Vienna, Austria. https://www.R-project.org/
