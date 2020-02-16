@@ -59,17 +59,19 @@ site_url <- "https://lis.virginia.gov"
 Responsible scraping of Web pages requires that we examine the robots.txt file to determine if the site restricts access. The LIS robots.txt file doesn't contain any restrictions on directories, nor does it request a crawl delay.
 
 ```{r check_robots_txt}
+# Add error handling later
 robots_txt <- get_robotstxt(site_url)
 robots_txt_parsed <- parse_robotstxt(robots_txt)
 robots_txt_parsed
 ```
 
-```{r}
+```{r scrape_LIS_home_page}
 # Scrape the LIS home page
+# Add error handling later
 home_page_html <- read_html(site_url)
 ```
 
-Building a list of the General Assembly sessions available through LIS will enable the creation of functions to build lists of URLS to traverse to read the text of bills.
+Building a list of the General Assembly sessions available through LIS will enable us to build lists of URLS to traverse to read the text of bills.
 
 ```{r get_general_assembly_sessions}
 # The home page has a drop down list box labeled, "OTHER SESSIONS." The list
@@ -78,20 +80,119 @@ ga_sessions_html <- home_page_html %>%
   html_node("#sLink") %>%
   html_text()
 
-# The list of sessions needs to be cleaned up to turn it into an iterable list.
+# Clean up the list of sessions into an iterable list.
 
 # Every line ends with a carriage return/line feed combination, providing
 # a convenient way to break the HTML into a list of session names.
 ga_sessions <- str_split(ga_sessions_html, "\r\n") %>%
-  # Work on the first column in the list (it only has one)
-  `[[` (1) %>%
-  # Remove the first two rows, which contain the title and a row of dashes
-  '[' (-1:-2) %>%
+  # Work on the first column in the list (it only has one)  
+  `[[`(1) %>%
+  # Remove the first two rows, which contain the title and a row of dashes  
+  `[`(-1:-2) %>%
   # Sort the list in ascending (chronological) order
-  sort(ga_sessions, decreasing = FALSE) %>%
-  # Remove the empty element, anartifact leftover from str_split
-  `[` (-1:-1)
+  sort(decreasing = FALSE) %>%
+  # Remove the empty element, an artifact leftover from str_split
+  `[`(-1:-1)
 ```
+
+Turn the list of sessions into a data frame that can be used to narrow a search for bills by a particular year of range of years, if desired.
+
+```{r build_sessions_data_frame}
+# How many sessions are there?
+num_ga_sessions = length(ga_sessions)
+
+# Preallocate the data frame since we know its size
+ga_sessions_df <- data.frame(session_year = character(num_ga_sessions),
+                             session_type = character(num_ga_sessions),
+                             session_number = character(num_ga_sessions),
+                             session_bill_list_url = character(num_ga_sessions),
+                             stringsAsFactors = FALSE)
+
+# Fill in each row of the data frame
+for (i in 1:num_ga_sessions) {
+  # The year is the first four characters of the session title
+  session_year = str_sub(ga_sessions[i], 1, 4)
+  
+  # Special sessions contain the word 'special' in the title;
+  # otherwise, it is a regular session.
+  session_type <- if (grepl ("special", ga_sessions[i], ignore.case = TRUE)) {
+    "Special"
+  } else {
+    "Regular"
+  }
+  
+  # Session numbers start at 1, beginning with first regular session of each year
+  if (session_type == "Regular") {
+    session_number <- 1
+  } else {
+    session_number <- session_number + 1
+  }
+  
+  # The URL for a session's list of bills has the form:
+  #     https://lis.virginia.gov/cgi-bin/legp604.exe?YYN+lst+ALL
+  #     where YY = last 2 digits of year and N = session number  
+  session_bill_list_url <- paste0(site_url,
+                                  "/cgi-bin/legp604.exe?",
+                                  str_sub(session_year, 3, 4),
+                                  session_number,
+                                  "+lst+ALL")
+  
+  # Copy the session information into the data frame
+  ga_sessions_df[i,] <- c(session_year,
+                          session_type,
+                          session_number,
+                          session_bill_list_url
+                        )
+}
+```
+
+Scrape the LIS Web site to figure out how many bills were presented and ordered printed in each session. The list of bills is contained in an unordered list of class "linkSect."
+
+```{r function_get_bill_list}
+bill_list <- function() {
+  # This function is under construction
+  
+  # Add error handling later
+  #bill_list_page_html <- read_html(bill_list_url)
+  print(session_bill_list_url)
+  
+  #ga_sessions_html <- bill_list_page_html %>%
+  #html_node("#sLink") %>%
+  #html_text()
+  
+  # Read the sessions bill list Web page
+  #page_html <- read_html(bill_list_url)
+}
+```
+
+https://lis.virginia.gov/cgi-bin/legp604.exe?YYN+lst+ALL
+
+```{r function_select_years}
+select_years <- function(year_start, year_end) {
+  # Add error handling to validate the arguments
+  # Argument 1: YYYY as a character vector
+  # Argument 2: YYYY as a character vector
+
+  sessions_df <- subset(ga_sessions_df, 
+                        session_year >= year_start & session_year <= year_end)
+  print(sessions_df)
+}
+```
+
+The main function of the code is a wrapper for the entire process.
+
+```{r main}
+select_years("1994", "1994")
+```
+
+We have to figure out how to find the URL for each piece of legislation introduced during a session. The URL format for the full text of a bill that was presented and ordered printed is:
+
+https://lis.virginia.gov/cgi-bin/legp604.exe?YYN+ful+CTN
+
+*  YY = Last two digits of year
+*  C  = Chamber
+*  T = Type of legislation
+*  N  = Bill number (1 to 4 digits)
 
 ```{r create_data_frame}
 # Data skeleton for presented and ordered printed 
@@ -111,16 +212,6 @@ ga_sessions <- str_split(ga_sessions_html, "\r\n") %>%
 First, only for last (top) bills - HB presented and ordered printed  
 First, loop through bill numbers (need to do this for Senate and joint resolutions, etc. as well - loop later)
 
-```{r}
-# For development purposes, hardcode the session portion of the URL
-# for the 1994 House session. This will be expanded into a function later.
-session_url <- "cgi-bin/legp604.exe?941+ful+"
-```
-#1994 example
-#http://lis.virginia.gov/cgi-bin/legp604.exe?941+ful+HB1
-#2018 example
-#http://lis.virginia.gov/cgi-bin/legp604.exe?181+ful+HB1
-
 There are multiple types of legislation introduced in the General Assembly:
 *  House bills
 *  House joint resolutions
@@ -137,21 +228,22 @@ Dr. McGrath's ideas:
 *  Loop through SJ as a class
 *  Loop through SR as a class
 
-Not all types may be introduced in every session. In addition to the annual session, the General Assembly may also convene one or more special ga_sessions.
+Not all types may be introduced in every session. In addition to the annual session, the General Assembly may also convene one or more special sessions.
 
 HTML bold and italic tags in the bill text confuse things. Normally, the Unicode section character, U+00A7, seems to be handled without difficulty, but ends up as the Unicode replacement character, U+FFFD, if also bolded or italicized. Should bold and italic tags be stripped before parsing out the desired elements?
 
 ```{r}
-loop_chambers <- c("H", "S")
+#loop_chambers <- c("H", "S")
+#session_url <- "cgi-bin/legp604.exe?941+ful+"
 
-for (chamber in loop_chambers) {
-  for(i in 1:1500) {
+#for (chamber in loop_chambers) {
+#  for(i in 1:1500) {
     # Strip leading zeros from the bill number counter
-    i1 <- sprintf('%01d', i)
+    #i1 <- sprintf('%01d', i)
     
     # Build the bill's URL based on the site and base URLs, chamber, and loop counter
     # Will need to add logic for types of legislation
-    bill_url <- paste0(site_url, "/", session_url, chamber, "B", i1) # loop through S too
+    #bill_url <- paste0(site_url, "/", session_url, chamber, "B", i1) # loop through S too
     
     # Read the bill's Web page
     #page_html <- read_html(bill_url)
@@ -226,16 +318,16 @@ for (chamber in loop_chambers) {
     
     # Wait 1 second before scraping the next Web page to be polite.
     # Helps to avoid the server thinking we're an ill-behaved bot.
-    Sys.sleep(1)
-  }
-}
+#    Sys.sleep(1)
+#  }
+#}
 ```
 
 Save the results to a CSV file. This is a temporary option since bills with text larger than 32k will overflow their cells. Creating an SQL database or using XML may be better options. Consider packages for writing Excel files instead of CSV.
 
-#```{r write_to_csv}
+```{r write_to_csv}
 #write.csv(data, file = "1994.csv")
-#```
+```
 \newpage
 # References
 Grolemund, Garrett, and Hadley Wickham. 2016. *R for Data Science.* Sebastapol, California: O'Reilly Media.
