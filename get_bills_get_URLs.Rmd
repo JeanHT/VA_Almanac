@@ -146,22 +146,29 @@ for (i in 1:num_ga_sessions) {
 }
 ```
 
-Scrape the LIS Web site to figure out how many bills were presented and ordered printed in each session. The list of bills is contained in an unordered list of class "linkSect."
-
-```{r function_get_bill_list}
-bill_list <- function() {
+```{r function_get_introduced_bills}
+introduced_bills <- function(input_df) {
   # This function is under construction
-  
+
+  # Scrape the session home page
   # Add error handling later
-  #bill_list_page_html <- read_html(bill_list_url)
-  print(session_bill_list_url)
+  bill_list_page_html <- read_html(input_df[4])
   
-  #ga_sessions_html <- bill_list_page_html %>%
-  #html_node("#sLink") %>%
-  #html_text()
+  # The list of bills is contained in an unordered list of class "linkSect."
+  # Get every entry within the list, taking only the bill's URL from the <a> node.
+  bill_list_html <- as.list(bill_list_page_html %>%
+    html_nodes("ul.linkSect > li > a") %>%
+    html_attr("href"))
   
-  # Read the sessions bill list Web page
-  #page_html <- read_html(bill_list_url)
+  new_list <- paste0(site_url, bill_list_html)
+  
+  # Bills introduced in a session are shown 80 per page.
+  # If there are more bills, the word "More..." appears
+  # next to a hyperlink containing "ALL". If the last entry
+  # in the list contains "ALL"
+  #604.exe?941+lst+ALL+HB0080"
+  
+  #print(h3_html)
 }
 ```
 
@@ -173,10 +180,14 @@ select_years <- function(year_start, year_end) {
   # Argument 1: YYYY as a character vector
   # Argument 2: YYYY as a character vector
 
-  sessions_df <- subset(ga_sessions_df, 
-                        session_year >= year_start & session_year <= year_end)
-  print(sessions_df)
-}
+  # Find the rows matching the specified years and keep only the URL column
+  years_df <- subset(ga_sessions_df, 
+                    ga_sessions_df$session_year >= year_start &
+                    ga_sessions_df$session_year <= year_end)
+  
+  # Find all the bills introduced during those years
+  apply(years_df, 1, introduced_bills)
+  }
 ```
 
 The main function of the code is a wrapper for the entire process.
