@@ -43,7 +43,7 @@ knitr::opts_chunk$set(
 library(robotstxt)
 library(rvest)    
 library(tidyverse)
-library(xml2)
+#library(xml2)
 #library(rebus)     
 #library(lubridate)
 #library(qdapRegex)
@@ -69,9 +69,12 @@ robots_txt_parsed
 # Scrape the LIS home page
 # Add error handling later
 home_page_html <- read_html(site_url)
+              
+# Wait a second before scraping the next Web page to be polite.
+Sys.sleep(1)
 ```
 
-Building a list of the General Assembly sessions available through LIS will enable us to build lists of URLS to traverse to read the text of bills.
+Building a list of the General Assembly sessions will enable us to build lists of URLs to traverse to read the text of bills.
 
 ```{r get_general_assembly_sessions}
 # The home page has a drop down list box labeled, "OTHER SESSIONS." The list
@@ -115,7 +118,7 @@ for (i in 1:num_ga_sessions) {
   
   # Special sessions contain the word 'special' in the title;
   # otherwise, it is a regular session.
-  session_type <- if (grepl ("special", ga_sessions[i], ignore.case = TRUE)) {
+  session_type <- if (grepl("special", ga_sessions[i], ignore.case = TRUE)) {
     "Special"
   } else {
     "Regular"
@@ -148,31 +151,73 @@ for (i in 1:num_ga_sessions) {
 
 ```{r function_get_introduced_bills}
 introduced_bills <- function(input_df) {
-  # This function is under construction
+  # For debugging
+  options(max.print = 9999)
 
+  # Each page of bill URLs will be added to this final list
+  final_bill_url_list = list()
+  
+  # Flag to help navigate pages to get all the bills
+  more_bills <- TRUE
+    
   # Scrape the session home page
   # Add error handling later
   bill_list_page_html <- read_html(input_df[4])
-  
-  # The list of bills is contained in an unordered list of class "linkSect."
-  # Get every entry within the list, taking only the bill's URL from the <a> node.
-  bill_list_html <- as.list(bill_list_page_html %>%
-    html_nodes("ul.linkSect > li > a") %>%
-    html_attr("href"))
-  
-  new_list <- paste0(site_url, bill_list_html)
-  
-  # Bills introduced in a session are shown 80 per page.
-  # If there are more bills, the word "More..." appears
-  # next to a hyperlink containing "ALL". If the last entry
-  # in the list contains "ALL"
-  #604.exe?941+lst+ALL+HB0080"
-  
-  #print(h3_html)
+              
+  # Wait a second before scraping the next Web page to be polite.
+  Sys.sleep(1)
+    
+  # Use a while loop since we don't know how many bills there are.
+  while (more_bills) {
+    # The list of bills is contained in an unordered list of class "linkSect."
+    # Get all entries within the list, taking only the bill's URL from the <a> node.
+    bill_url_list <- as.list(bill_list_page_html %>%
+      html_nodes("ul.linkSect > li > a") %>%
+      html_attr("href")
+    )
+
+    # Bills introduced in a session are displayed 80 per page. If there
+    # are more bills, the word "More..." appears at the bottom of the
+    # page as a hyperlink
+    # containing "ALL". If the URL of the last entry in the list
+    # contains "ALL", then there are more bills. We can't assume that
+    # the Web site will always display 80 bills per page.
+    
+    # Get the last URL from the page so we can use it.
+    # It will either be the last bill on the page or "More..."
+    last_url <- last(bill_url_list)
+    
+    # Does the last URL contain "ALL"?
+    if (grepl("ALL", last_url)) {
+      # Yes, the last URL contains "ALL" so it is the "More..." link
+      more_bills <- TRUE
+      
+      # Append the current list to the final list of URLs,
+      # but drop the last two entries. The second to last entry
+      # will be duplicated at the beginning of the next page.
+      # The last entry is the "More..." link.
+      final_bill_url_list <- append(final_bill_url_list, head(bill_url_list, -2))
+
+      # Scrape the next page
+      # Add error handling later
+      bill_list_page_html <- read_html(paste0(site_url, last_url))
+            
+      # Wait a second before scraping the next Web page to be polite.
+      Sys.sleep(1)
+    } else {
+      # No, the last URL doesn't contain "ALL" so there are no more bills
+      more_bills <- FALSE
+      
+      # Append the current list to the final list of URLs
+      final_bill_url_list <- append(final_bill_url_list, bill_url_list)
+    }
+  }
+
+  # The scraped URLs are just fragments, not complete URLs.
+  # Prepend the site URL to build the complete URL for each bill.
+  final_bill_url_list <- paste0(site_url, final_bill_url_list)
 }
 ```
-
-https://lis.virginia.gov/cgi-bin/legp604.exe?YYN+lst+ALL
 
 ```{r function_select_years}
 select_years <- function(year_start, year_end) {
@@ -193,7 +238,7 @@ select_years <- function(year_start, year_end) {
 The main function of the code is a wrapper for the entire process.
 
 ```{r main}
-select_years("1994", "1994")
+select_years("1994", "1995")
 ```
 
 We have to figure out how to find the URL for each piece of legislation introduced during a session. The URL format for the full text of a bill that was presented and ordered printed is:
